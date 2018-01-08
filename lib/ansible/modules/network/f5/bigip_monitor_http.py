@@ -8,11 +8,9 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 
-ANSIBLE_METADATA = {
-    'status': ['preview'],
-    'supported_by': 'community',
-    'metadata_version': '1.1'
-}
+ANSIBLE_METADATA = {'metadata_version': '1.1',
+                    'status': ['preview'],
+                    'supported_by': 'community'}
 
 DOCUMENTATION = r'''
 ---
@@ -234,15 +232,20 @@ class Parameters(AnsibleF5Parameters):
                     # If the mapped value is not a @property
                     self._values[map_key] = v
 
+    def _fqdn_name(self, value):
+        if value is not None and not value.startswith('/'):
+            return '/{0}/{1}'.format(self.partition, value)
+        return value
+
     def to_return(self):
         result = {}
         try:
             for returnable in self.returnables:
                 result[returnable] = getattr(self, returnable)
             result = self._filter_params(result)
-            return result
         except Exception:
-            return result
+            pass
+        return result
 
     def api_params(self):
         result = {}
@@ -253,14 +256,6 @@ class Parameters(AnsibleF5Parameters):
                 result[api_attribute] = getattr(self, api_attribute)
         result = self._filter_params(result)
         return result
-
-    @property
-    def username(self):
-        return self._values['target_username']
-
-    @property
-    def password(self):
-        return self._values['target_password']
 
     @property
     def destination(self):
@@ -326,16 +321,24 @@ class Parameters(AnsibleF5Parameters):
     def parent(self):
         if self._values['parent'] is None:
             return None
-        if self._values['parent'].startswith('/'):
-            parent = os.path.basename(self._values['parent'])
-            result = '/{0}/{1}'.format(self.partition, parent)
-        else:
-            result = '/{0}/{1}'.format(self.partition, self._values['parent'])
+        result = self._fqdn_name(self._values['parent'])
         return result
 
     @property
     def type(self):
         return 'http'
+
+    @property
+    def username(self):
+        return self._values['target_username']
+
+    @property
+    def password(self):
+        return self._values['target_password']
+
+
+class Changes(Parameters):
+    pass
 
 
 class Difference(object):
@@ -353,7 +356,7 @@ class Difference(object):
 
     @property
     def parent(self):
-        if self.want.parent != self.want.parent:
+        if self.want.parent != self.have.parent:
             raise F5ModuleError(
                 "The parent monitor cannot be changed"
             )
@@ -410,7 +413,7 @@ class ModuleManager(object):
         self.client = client
         self.have = None
         self.want = Parameters(self.client.module.params)
-        self.changes = Parameters()
+        self.changes = Changes()
 
     def _set_changed_options(self):
         changed = {}
@@ -418,7 +421,7 @@ class ModuleManager(object):
             if getattr(self.want, key) is not None:
                 changed[key] = getattr(self.want, key)
         if changed:
-            self.changes = Parameters(changed)
+            self.changes = Changes(changed)
 
     def _update_changed_options(self):
         diff = Difference(self.want, self.have)
@@ -429,9 +432,12 @@ class ModuleManager(object):
             if change is None:
                 continue
             else:
-                changed[k] = change
+                if isinstance(change, dict):
+                    changed.update(change)
+                else:
+                    changed[k] = change
         if changed:
-            self.changes = Parameters(changed)
+            self.changes = Changes(changed)
             return True
         return False
 
@@ -564,7 +570,7 @@ class ArgumentSpec(object):
         self.supports_check_mode = True
         self.argument_spec = dict(
             name=dict(required=True),
-            parent=dict(default='http'),
+            parent=dict(default='/Common/http'),
             send=dict(),
             receive=dict(),
             receive_disable=dict(required=False),
@@ -584,6 +590,16 @@ class ArgumentSpec(object):
         self.f5_product_name = 'bigip'
 
 
+def cleanup_tokens(client):
+    try:
+        resource = client.api.shared.authz.tokens_s.token.load(
+            name=client.api.icrs.token
+        )
+        resource.delete()
+    except Exception:
+        pass
+
+
 def main():
     spec = ArgumentSpec()
 
@@ -592,6 +608,7 @@ def main():
         supports_check_mode=spec.supports_check_mode,
         f5_product_name=spec.f5_product_name
     )
+
     try:
         if not HAS_F5SDK:
             raise F5ModuleError("The python f5-sdk module is required")
@@ -601,8 +618,10 @@ def main():
 
         mm = ModuleManager(client)
         results = mm.exec_module()
+        cleanup_tokens(client)
         client.module.exit_json(**results)
     except F5ModuleError as e:
+        cleanup_tokens(client)
         client.module.fail_json(msg=str(e))
 
 

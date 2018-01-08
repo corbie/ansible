@@ -20,11 +20,10 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
-import json
-
 from ansible.compat.tests.mock import patch
 from ansible.modules.network.aruba import aruba_config
-from .aruba_module import TestArubaModule, load_fixture, set_module_args
+from units.modules.utils import set_module_args
+from .aruba_module import TestArubaModule, load_fixture
 
 
 class TestArubaConfigModule(TestArubaModule):
@@ -32,6 +31,8 @@ class TestArubaConfigModule(TestArubaModule):
     module = aruba_config
 
     def setUp(self):
+        super(TestArubaConfigModule, self).setUp()
+
         self.mock_get_config = patch('ansible.modules.network.aruba.aruba_config.get_config')
         self.get_config = self.mock_get_config.start()
 
@@ -42,6 +43,8 @@ class TestArubaConfigModule(TestArubaModule):
         self.run_commands = self.mock_run_commands.start()
 
     def tearDown(self):
+        super(TestArubaConfigModule, self).tearDown()
+
         self.mock_get_config.stop()
         self.mock_load_config.stop()
         self.mock_run_commands.stop()
@@ -55,6 +58,14 @@ class TestArubaConfigModule(TestArubaModule):
         src = load_fixture('aruba_config_config.cfg')
         set_module_args(dict(src=src))
         self.execute_module()
+
+    def test_aruba_config_unchanged_different_spacing(self):
+        # Tab indented
+        set_module_args(dict(lines=['description test string'], parents=['interface GigabitEthernet0/0']))
+        self.execute_module(changed=False)
+        # 3 spaces indented
+        set_module_args(dict(lines=['essid "blah"'], parents=['wlan ssid-profile "blah"']))
+        self.execute_module(changed=False)
 
     def test_aruba_config_src(self):
         src = load_fixture('aruba_config_src.cfg')

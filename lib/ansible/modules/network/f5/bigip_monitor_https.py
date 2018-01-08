@@ -4,11 +4,15 @@
 # Copyright (c) 2017 F5 Networks Inc.
 # GNU General Public License v3.0 (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
-DOCUMENTATION = '''
+DOCUMENTATION = r'''
 ---
 module: bigip_monitor_https
 short_description: Manages F5 BIG-IP LTM https monitors
@@ -95,53 +99,53 @@ author:
   - Tim Rupp (@caphrim007)
 '''
 
-EXAMPLES = '''
+EXAMPLES = r'''
 - name: Create HTTPS Monitor
   bigip_monitor_https:
-      state: "present"
-      ip: "10.10.10.10"
-      server: "lb.mydomain.com"
-      user: "admin"
-      password: "secret"
-      name: "my_http_monitor"
+    state: present
+    ip: 10.10.10.10
+    server: lb.mydomain.com
+    user: admin
+    password: secret
+    name: my_http_monitor
   delegate_to: localhost
 
 - name: Remove HTTPS Monitor
   bigip_monitor_https:
-      state: "absent"
-      server: "lb.mydomain.com"
-      user: "admin"
-      password: "secret"
-      name: "my_http_monitor"
+    state: absent
+    server: lb.mydomain.com
+    user: admin
+    password: secret
+    name: my_http_monitor
   delegate_to: localhost
 '''
 
-RETURN = '''
+RETURN = r'''
 parent:
-    description: New parent template of the monitor.
-    returned: changed
-    type: string
-    sample: "https"
+  description: New parent template of the monitor.
+  returned: changed
+  type: string
+  sample: https
 ip:
-    description: The new IP of IP/port definition.
-    returned: changed
-    type: string
-    sample: "10.12.13.14"
+  description: The new IP of IP/port definition.
+  returned: changed
+  type: string
+  sample: 10.12.13.14
 interval:
-    description: The new interval in which to run the monitor check.
-    returned: changed
-    type: int
-    sample: 2
+  description: The new interval in which to run the monitor check.
+  returned: changed
+  type: int
+  sample: 2
 timeout:
-    description: The new timeout in which the remote system must respond to the monitor.
-    returned: changed
-    type: int
-    sample: 10
+  description: The new timeout in which the remote system must respond to the monitor.
+  returned: changed
+  type: int
+  sample: 10
 time_until_up:
-    description: The new time in which to mark a system as up after first successful response.
-    returned: changed
-    type: int
-    sample: 2
+  description: The new time in which to mark a system as up after first successful response.
+  returned: changed
+  type: int
+  sample: 2
 '''
 
 import os
@@ -156,8 +160,8 @@ from ansible.module_utils.f5_utils import AnsibleF5Client
 from ansible.module_utils.f5_utils import AnsibleF5Parameters
 from ansible.module_utils.f5_utils import HAS_F5SDK
 from ansible.module_utils.f5_utils import F5ModuleError
-from ansible.module_utils.f5_utils import iteritems
-from ansible.module_utils.f5_utils import defaultdict
+from ansible.module_utils.six import iteritems
+from collections import defaultdict
 
 try:
     from ansible.module_utils.f5_utils import iControlUnexpectedHTTPError
@@ -216,6 +220,11 @@ class Parameters(AnsibleF5Parameters):
                 else:
                     # If the mapped value is not a @property
                     self._values[map_key] = v
+
+    def _fqdn_name(self, value):
+        if value is not None and not value.startswith('/'):
+            return '/{0}/{1}'.format(self.partition, value)
+        return value
 
     def to_return(self):
         result = {}
@@ -309,11 +318,7 @@ class Parameters(AnsibleF5Parameters):
     def parent(self):
         if self._values['parent'] is None:
             return None
-        if self._values['parent'].startswith('/'):
-            parent = os.path.basename(self._values['parent'])
-            result = '/{0}/{1}'.format(self.partition, parent)
-        else:
-            result = '/{0}/{1}'.format(self.partition, self._values['parent'])
+        result = self._fqdn_name(self._values['parent'])
         return result
 
     @property
@@ -336,7 +341,7 @@ class Difference(object):
 
     @property
     def parent(self):
-        if self.want.parent != self.want.parent:
+        if self.want.parent != self.have.parent:
             raise F5ModuleError(
                 "The parent monitor cannot be changed"
             )
@@ -547,7 +552,7 @@ class ArgumentSpec(object):
         self.supports_check_mode = True
         self.argument_spec = dict(
             name=dict(required=True),
-            parent=dict(default='https'),
+            parent=dict(default='/Common/https'),
             send=dict(),
             receive=dict(),
             receive_disable=dict(required=False),
@@ -562,6 +567,16 @@ class ArgumentSpec(object):
         self.f5_product_name = 'bigip'
 
 
+def cleanup_tokens(client):
+    try:
+        resource = client.api.shared.authz.tokens_s.token.load(
+            name=client.api.icrs.token
+        )
+        resource.delete()
+    except Exception:
+        pass
+
+
 def main():
     spec = ArgumentSpec()
 
@@ -570,6 +585,7 @@ def main():
         supports_check_mode=spec.supports_check_mode,
         f5_product_name=spec.f5_product_name
     )
+
     try:
         if not HAS_F5SDK:
             raise F5ModuleError("The python f5-sdk module is required")
@@ -579,8 +595,10 @@ def main():
 
         mm = ModuleManager(client)
         results = mm.exec_module()
+        cleanup_tokens(client)
         client.module.exit_json(**results)
     except F5ModuleError as e:
+        cleanup_tokens(client)
         client.module.fail_json(msg=str(e))
 
 

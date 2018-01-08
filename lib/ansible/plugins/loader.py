@@ -210,7 +210,7 @@ class PluginLoader:
             type_name = get_plugin_class(self.class_name)
 
             # FIXME: expand from just connection and callback
-            if type_name in ('connection', 'callback'):
+            if type_name in ('callback', 'connection', 'inventory', 'lookup'):
                 dstring = read_docstring(path, verbose=False, ignore_errors=False)
 
                 if dstring.get('doc', False):
@@ -424,7 +424,14 @@ class PluginLoader:
                 continue
 
             if path not in self._module_cache:
-                self._module_cache[path] = self._load_module_source(name, path)
+                module = self._load_module_source(name, path)
+                if module in self._module_cache.values():
+                    # In ``_load_module_source`` if a plugin has a duplicate name, we just return the
+                    # previously matched plugin from sys.modules, which means you are never getting both,
+                    # just one, but cached for both paths, this isn't normally a problem, except with callbacks
+                    # where it will run that single callback twice. This rejects duplicates.
+                    continue
+                self._module_cache[path] = module
                 found_in_cache = False
 
             try:
@@ -581,4 +588,11 @@ netconf_loader = PluginLoader(
     'netconf_plugins',
     'netconf_plugins',
     required_base_class='NetconfBase'
+)
+
+inventory_loader = PluginLoader(
+    'InventoryModule',
+    'ansible.plugins.inventory',
+    C.DEFAULT_INVENTORY_PLUGIN_PATH,
+    'inventory_plugins'
 )
